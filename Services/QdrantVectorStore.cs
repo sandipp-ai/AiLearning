@@ -74,7 +74,8 @@ public class QdrantVectorStore
 
         point.Payload["text"] =
             chunk.Text;
-
+point.Payload["documentHash"] =
+    chunk.DocumentHash;
         await _client.UpsertAsync(
             collectionName: CollectionName,
             points: new[] { point });
@@ -137,12 +138,46 @@ public class QdrantVectorStore
 
         point.Payload["text"] =
             chunk.Text;
-
+            
+        point.Payload["documentHash"] =
+            chunk.DocumentHash;
+            
         points.Add(point);
     }
 
     await _client.UpsertAsync(
         collectionName: CollectionName,
         points: points);
+}
+
+public async Task<bool> DocumentExistsAsync(
+    string documentHash)
+{
+    var filter = new Filter
+    {
+        Must =
+        {
+            new Condition
+            {
+                Field = new FieldCondition
+                {
+                    Key = "documentHash",
+                    Match = new Match
+                    {
+                        Keyword = documentHash
+                    }
+                }
+            }
+        }
+    };
+
+    var result = await _client.ScrollAsync(
+        collectionName: CollectionName,
+        filter: filter,
+        limit: 1,
+        payloadSelector: false,
+        vectorsSelector: false);
+
+    return result.Result.Count > 0;
 }
 }

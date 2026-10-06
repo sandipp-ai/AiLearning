@@ -4,6 +4,8 @@ using Microsoft.Extensions.Configuration;
 using OpenAI;
 using System.ClientModel;
 
+
+var hashService = new DocumentHashService();
 // --------------------------------------------------
 // PDF
 // --------------------------------------------------
@@ -103,7 +105,8 @@ var indexingService =
         pdfExtractor,
         chunkingService,
         ingestionService,
-        vectorStore);
+        vectorStore,
+        hashService);
 
 // --------------------------------------------------
 // RAG service

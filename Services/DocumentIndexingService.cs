@@ -8,17 +8,20 @@ public class DocumentIndexingService
     private readonly TextChunkingService _chunkingService;
     private readonly DocumentIngestionService _ingestionService;
     private readonly QdrantVectorStore _vectorStore;
+    private readonly DocumentHashService _hashService;
 
     public DocumentIndexingService(
         PdfTextExtractor pdfExtractor,
         TextChunkingService chunkingService,
         DocumentIngestionService ingestionService,
-        QdrantVectorStore vectorStore)
+        QdrantVectorStore vectorStore,
+        DocumentHashService hashService)
     {
         _pdfExtractor = pdfExtractor;
         _chunkingService = chunkingService;
         _ingestionService = ingestionService;
         _vectorStore = vectorStore;
+        _hashService = hashService;
     }
 
     public async Task IndexPdfAsync(
@@ -31,7 +34,29 @@ public class DocumentIndexingService
             "PDF file not found.",
             filePath);
     }
+System.Console.WriteLine();
+System.Console.WriteLine(
+    "Calculating document hash...");
 
+string documentHash =
+    await _hashService.CalculateHashAsync(
+        filePath,
+        cancellationToken);
+
+bool alreadyIndexed =
+    await _vectorStore.DocumentExistsAsync(
+        documentHash);
+
+if (alreadyIndexed)
+{
+    System.Console.WriteLine(
+        "Document is already indexed.");
+
+    System.Console.WriteLine(
+        "Skipping extraction and embedding.");
+
+    return;
+}
     System.Console.WriteLine();
     System.Console.WriteLine("Extracting PDF...");
 
@@ -44,6 +69,11 @@ public class DocumentIndexingService
     var chunks =
         _chunkingService.CreateChunks(pages);
 
+foreach (var chunk in chunks)
+{
+    chunk.DocumentHash =
+        documentHash;
+}
     System.Console.WriteLine(
         $"Chunks created: {chunks.Count}");
 

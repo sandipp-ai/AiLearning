@@ -13,4 +13,5 @@ public class DocumentChunk
     public required string Text { get; set; }
 
     public float[] Embedding { get; set; } = [];
+    public string DocumentHash { get; set; } = string.Empty;
 }
