@@ -24,56 +24,122 @@ public class DocumentIndexingService
         _hashService = hashService;
     }
 
-    public async Task IndexPdfAsync(
+public async Task IndexPdfAsync(
     string filePath,
     CancellationToken cancellationToken = default)
 {
+    // --------------------------------------------------
+    // 1. Validate file
+    // --------------------------------------------------
+
     if (!File.Exists(filePath))
     {
         throw new FileNotFoundException(
             "PDF file not found.",
             filePath);
     }
-System.Console.WriteLine();
-System.Console.WriteLine(
-    "Calculating document hash...");
 
-string documentHash =
-    await _hashService.CalculateHashAsync(
-        filePath,
-        cancellationToken);
+    string fileName =
+        Path.GetFileName(filePath);
 
-bool alreadyIndexed =
-    await _vectorStore.DocumentExistsAsync(
-        documentHash);
-
-if (alreadyIndexed)
-{
-    System.Console.WriteLine(
-        "Document is already indexed.");
-
-    System.Console.WriteLine(
-        "Skipping extraction and embedding.");
-
-    return;
-}
     System.Console.WriteLine();
-    System.Console.WriteLine("Extracting PDF...");
+    System.Console.WriteLine(
+        $"Checking document: {fileName}");
+
+    // --------------------------------------------------
+    // 2. Create stable document ID
+    // --------------------------------------------------
+
+    string documentId =
+        _hashService.CreateDocumentId(
+            filePath);
+
+    // --------------------------------------------------
+    // 3. Calculate current document hash
+    // --------------------------------------------------
+
+    System.Console.WriteLine(
+        "Calculating document hash...");
+
+    string documentHash =
+        await _hashService.CalculateHashAsync(
+            filePath,
+            cancellationToken);
+
+    // --------------------------------------------------
+    // 4. Check existing document in Qdrant
+    // --------------------------------------------------
+
+    string? existingHash =
+        await _vectorStore.GetDocumentHashAsync(
+            documentId);
+
+    // --------------------------------------------------
+    // 5. Same document + same content
+    // --------------------------------------------------
+
+    if (existingHash != null &&
+        string.Equals(
+            existingHash,
+            documentHash,
+            StringComparison.OrdinalIgnoreCase))
+    {
+        System.Console.WriteLine(
+            "Document is already indexed and unchanged.");
+
+        System.Console.WriteLine(
+            "Skipping extraction and embedding.");
+
+        return;
+    }
+
+    // --------------------------------------------------
+    // 6. Same document + changed content
+    // --------------------------------------------------
+
+    if (existingHash != null)
+    {
+        System.Console.WriteLine(
+            "Document has changed.");
+
+        System.Console.WriteLine(
+            "Removing old document chunks...");
+
+        await _vectorStore.DeleteDocumentAsync(
+            documentId);
+
+        System.Console.WriteLine(
+            "Old document chunks removed.");
+    }
+    else
+    {
+        System.Console.WriteLine(
+            "New document detected.");
+    }
+
+    // --------------------------------------------------
+    // 7. Extract PDF
+    // --------------------------------------------------
+
+    System.Console.WriteLine();
+    System.Console.WriteLine(
+        "Extracting PDF...");
 
     var pages =
-        _pdfExtractor.Extract(filePath);
+        _pdfExtractor.Extract(
+            filePath);
 
     System.Console.WriteLine(
         $"Pages containing text: {pages.Count}");
 
-    var chunks =
-        _chunkingService.CreateChunks(pages);
+    // --------------------------------------------------
+    // 8. Create chunks
+    // --------------------------------------------------
 
-foreach (var chunk in chunks)
-{
-    chunk.DocumentHash =
-        documentHash;
-}
+    var chunks =
+        _chunkingService.CreateChunks(
+            pages);
+
     System.Console.WriteLine(
         $"Chunks created: {chunks.Count}");
 
@@ -85,6 +151,23 @@ foreach (var chunk in chunks)
         return;
     }
 
+    // --------------------------------------------------
+    // 9. Assign document metadata
+    // --------------------------------------------------
+
+    foreach (var chunk in chunks)
+    {
+        chunk.DocumentId =
+            documentId;
+
+        chunk.DocumentHash =
+            documentHash;
+    }
+
+    // --------------------------------------------------
+    // 10. Process chunks in batches
+    // --------------------------------------------------
+
     const int batchSize = 10;
 
     int totalBatches =
@@ -95,6 +178,10 @@ foreach (var chunk in chunks)
     System.Console.WriteLine(
         $"Processing {chunks.Count} chunks " +
         $"in {totalBatches} batches...");
+
+    // --------------------------------------------------
+    // 11. Generate embeddings + save each batch
+    // --------------------------------------------------
 
     for (int i = 0;
          i < chunks.Count;
@@ -109,20 +196,25 @@ foreach (var chunk in chunks)
                 .Take(batchSize)
                 .ToList();
 
+        int startChunk =
+            i + 1;
+
+        int endChunk =
+            i + batch.Count;
+
         System.Console.WriteLine();
         System.Console.WriteLine(
             $"Batch {batchNumber}/{totalBatches}");
 
         System.Console.WriteLine(
-            $"Chunks {i + 1}-" +
-            $"{i + batch.Count}");
+            $"Chunks {startChunk}-{endChunk}");
 
-        // Generate embeddings only for this batch
+        // Generate embeddings
         await _ingestionService.EmbedAsync(
             batch,
             cancellationToken);
 
-        // Immediately save successful batch
+        // Save successful batch immediately
         await _vectorStore.UpsertChunksAsync(
             batch);
 
@@ -130,9 +222,16 @@ foreach (var chunk in chunks)
             $"Batch {batchNumber} saved to Qdrant.");
     }
 
+    // --------------------------------------------------
+    // 12. Completed
+    // --------------------------------------------------
+
     System.Console.WriteLine();
     System.Console.WriteLine(
-        $"Indexing completed successfully.");
+        "Indexing completed successfully.");
+
+    System.Console.WriteLine(
+        $"Document: {fileName}");
 
     System.Console.WriteLine(
         $"Total chunks indexed: {chunks.Count}");

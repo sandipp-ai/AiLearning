@@ -19,4 +19,24 @@ public class DocumentHashService
 
         return Convert.ToHexString(hash);
     }
+
+    public string CreateDocumentId(
+    string filePath)
+{
+    string normalizedPath =
+        Path.GetFullPath(filePath)
+            .Trim()
+            .ToLowerInvariant();
+
+    byte[] hash =
+        System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(
+                normalizedPath));
+
+    byte[] guidBytes =
+        hash[..16];
+
+    return new Guid(guidBytes)
+        .ToString();
+}
 }

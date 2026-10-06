@@ -74,8 +74,12 @@ public class QdrantVectorStore
 
         point.Payload["text"] =
             chunk.Text;
-point.Payload["documentHash"] =
-    chunk.DocumentHash;
+            
+        point.Payload["documentHash"] =
+            chunk.DocumentHash;
+
+        point.Payload["documentId"] =
+            chunk.DocumentId;
         await _client.UpsertAsync(
             collectionName: CollectionName,
             points: new[] { point });
@@ -141,7 +145,10 @@ point.Payload["documentHash"] =
             
         point.Payload["documentHash"] =
             chunk.DocumentHash;
-            
+        
+        point.Payload["documentId"] =
+            chunk.DocumentId;
+        
         points.Add(point);
     }
 
@@ -180,4 +187,76 @@ public async Task<bool> DocumentExistsAsync(
 
     return result.Result.Count > 0;
 }
+
+public async Task<string?> GetDocumentHashAsync(
+    string documentId)
+{
+    var filter = new Filter
+    {
+        Must =
+        {
+            new Condition
+            {
+                Field = new FieldCondition
+                {
+                    Key = "documentId",
+                    Match = new Match
+                    {
+                        Keyword = documentId
+                    }
+                }
+            }
+        }
+    };
+
+    var result =
+        await _client.ScrollAsync(
+            collectionName: CollectionName,
+            filter: filter,
+            limit: 1,
+            payloadSelector: true,
+            vectorsSelector: false);
+
+    if (result.Result.Count == 0)
+        return null;
+
+    var point =
+        result.Result[0];
+
+    if (!point.Payload.TryGetValue(
+        "documentHash",
+        out var hashValue))
+    {
+        return null;
+    }
+
+    return hashValue.StringValue;
+}
+
+public async Task DeleteDocumentAsync(
+    string documentId)
+{
+    var filter = new Filter
+    {
+        Must =
+        {
+            new Condition
+            {
+                Field = new FieldCondition
+                {
+                    Key = "documentId",
+                    Match = new Match
+                    {
+                        Keyword = documentId
+                    }
+                }
+            }
+        }
+    };
+
+    await _client.DeleteAsync(
+        collectionName: CollectionName,
+        filter: filter);
+}
+
 }

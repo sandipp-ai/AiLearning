@@ -10,10 +10,9 @@ var hashService = new DocumentHashService();
 // PDF
 // --------------------------------------------------
 
-string pdfPath = Path.Combine(
+string documentsPath = Path.Combine(
     AppContext.BaseDirectory,
-    "Documents",
-    "Sandip_report 2026.pdf");
+    "Documents");
 
 // --------------------------------------------------
 // Configuration
@@ -108,6 +107,8 @@ var indexingService =
         vectorStore,
         hashService);
 
+var folderIndexingService = new DocumentFolderIndexingService(indexingService);
+
 // --------------------------------------------------
 // RAG service
 // --------------------------------------------------
@@ -127,7 +128,7 @@ while (true)
     System.Console.WriteLine();
     System.Console.WriteLine("AI Learning");
     System.Console.WriteLine("--------------------");
-    System.Console.WriteLine("1. Ingest PDF");
+    System.Console.WriteLine("1. Ingest PDFs");
     System.Console.WriteLine("2. Ask question");
     System.Console.WriteLine("0. Exit");
     System.Console.WriteLine();
@@ -142,9 +143,7 @@ while (true)
 
     if (choice == "1")
     {
-        await indexingService.IndexPdfAsync(
-            pdfPath);
-
+        await folderIndexingService.IndexFolderAsync(documentsPath);
         continue;
     }
 
