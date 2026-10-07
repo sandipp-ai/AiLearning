@@ -3,8 +3,17 @@ using UglyToad.PdfPig;
 
 namespace AiLearning.Console.Services;
 
-public class PdfTextExtractor
+public class PdfTextExtractor : IDocumentTextExtractor
 {
+    public bool CanHandle(string filePath)
+    {
+        return Path.GetExtension(
+            filePath)
+            .Equals(
+                ".pdf",
+                StringComparison.OrdinalIgnoreCase);
+    }
+    
     public List<DocumentPage> Extract(string filePath)
     {
         if (!File.Exists(filePath))

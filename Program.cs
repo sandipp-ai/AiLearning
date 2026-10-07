@@ -83,8 +83,12 @@ System.Console.WriteLine(
 // PDF services
 // --------------------------------------------------
 
-var pdfExtractor =
-    new PdfTextExtractor();
+var extractors =
+    new List<IDocumentTextExtractor>
+    {
+        new PdfTextExtractor(),
+        new TxtTextExtractor()
+    };
 
 var chunkingService =
     new TextChunkingService(
@@ -101,7 +105,7 @@ var ingestionService =
 
 var indexingService =
     new DocumentIndexingService(
-        pdfExtractor,
+        extractors,
         chunkingService,
         ingestionService,
         vectorStore,

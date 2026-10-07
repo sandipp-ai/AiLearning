@@ -17,13 +17,21 @@ public class DocumentFolderIndexingService
                 $"Documents folder not found: {folderPath}");
         }
 
-        string[] pdfFiles =
-            Directory.GetFiles(
-                folderPath,
-                "*.pdf",
-                SearchOption.TopDirectoryOnly);
+        string[] files =
+    Directory.GetFiles(
+        folderPath,
+        "*.*",
+        SearchOption.TopDirectoryOnly)
+    .Where(file =>
+        file.EndsWith(
+            ".pdf",
+            StringComparison.OrdinalIgnoreCase) ||
+        file.EndsWith(
+            ".txt",
+            StringComparison.OrdinalIgnoreCase))
+    .ToArray();
 
-        if (pdfFiles.Length == 0)
+        if (files.Length == 0)
         {
             System.Console.WriteLine(
                 "No PDF documents found.");
@@ -33,31 +41,31 @@ public class DocumentFolderIndexingService
 
         System.Console.WriteLine();
         System.Console.WriteLine(
-            $"PDF documents found: {pdfFiles.Length}");
+            $"PDF documents found: {files.Length}");
 
-        foreach (string pdfFile in pdfFiles)
+        foreach (string file in files)
         {
             System.Console.WriteLine();
             System.Console.WriteLine(
                 "====================================");
 
             System.Console.WriteLine(
-                $"Processing: {Path.GetFileName(pdfFile)}");
+                $"Processing: {Path.GetFileName(file)}");
 
             System.Console.WriteLine(
                 "====================================");
 
             try
             {
-                await _documentIndexingService.IndexPdfAsync(
-                    pdfFile,
+                await _documentIndexingService.IndexDocumentAsync(
+                    file,
                     cancellationToken);
             }
             catch (Exception ex)
             {
                 System.Console.WriteLine(
                     $"Failed to index " +
-                    $"{Path.GetFileName(pdfFile)}:");
+                    $"{Path.GetFileName(file)}:");
 
                 System.Console.WriteLine(
                     ex.Message);

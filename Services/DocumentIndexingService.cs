@@ -4,27 +4,27 @@ namespace AiLearning.Console.Services;
 
 public class DocumentIndexingService
 {
-    private readonly PdfTextExtractor _pdfExtractor;
+    private readonly IEnumerable<IDocumentTextExtractor> _extractors;
     private readonly TextChunkingService _chunkingService;
     private readonly DocumentIngestionService _ingestionService;
     private readonly QdrantVectorStore _vectorStore;
     private readonly DocumentHashService _hashService;
 
     public DocumentIndexingService(
-        PdfTextExtractor pdfExtractor,
-        TextChunkingService chunkingService,
-        DocumentIngestionService ingestionService,
-        QdrantVectorStore vectorStore,
-        DocumentHashService hashService)
-    {
-        _pdfExtractor = pdfExtractor;
-        _chunkingService = chunkingService;
-        _ingestionService = ingestionService;
-        _vectorStore = vectorStore;
-        _hashService = hashService;
-    }
+    IEnumerable<IDocumentTextExtractor> extractors,
+    TextChunkingService chunkingService,
+    DocumentIngestionService ingestionService,
+    QdrantVectorStore vectorStore,
+    DocumentHashService hashService)
+{
+    _extractors = extractors;
+    _chunkingService = chunkingService;
+    _ingestionService = ingestionService;
+    _vectorStore = vectorStore;
+    _hashService = hashService;
+}
 
-public async Task IndexPdfAsync(
+public async Task IndexDocumentAsync(
     string filePath,
     CancellationToken cancellationToken = default)
 {
@@ -35,12 +35,11 @@ public async Task IndexPdfAsync(
     if (!File.Exists(filePath))
     {
         throw new FileNotFoundException(
-            "PDF file not found.",
+            "Document not found.",
             filePath);
     }
 
-    string fileName =
-        Path.GetFileName(filePath);
+    string fileName = Path.GetFileName(filePath);
 
     System.Console.WriteLine();
     System.Console.WriteLine(
@@ -121,16 +120,24 @@ public async Task IndexPdfAsync(
     // 7. Extract PDF
     // --------------------------------------------------
 
+IDocumentTextExtractor? extractor =
+    _extractors.FirstOrDefault(
+        x => x.CanHandle(filePath));
+
+if (extractor == null)
+{
+    throw new NotSupportedException(
+        $"Unsupported document type: " +
+        $"{Path.GetExtension(filePath)}");
+}
+
     System.Console.WriteLine();
     System.Console.WriteLine(
         "Extracting PDF...");
 
-    var pages =
-        _pdfExtractor.Extract(
-            filePath);
+    var pages = extractor.Extract(filePath);
 
-    System.Console.WriteLine(
-        $"Pages containing text: {pages.Count}");
+    System.Console.WriteLine($"Pages containing text: {pages.Count}");
 
     // --------------------------------------------------
     // 8. Create chunks
