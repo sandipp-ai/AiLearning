@@ -23,12 +23,9 @@ public class DocumentFolderIndexingService
         "*.*",
         SearchOption.TopDirectoryOnly)
     .Where(file =>
-        file.EndsWith(
-            ".pdf",
-            StringComparison.OrdinalIgnoreCase) ||
-        file.EndsWith(
-            ".txt",
-            StringComparison.OrdinalIgnoreCase))
+        file.EndsWith(".pdf",StringComparison.OrdinalIgnoreCase) ||
+        file.EndsWith(".txt",StringComparison.OrdinalIgnoreCase)||
+        file.EndsWith(".docx",StringComparison.OrdinalIgnoreCase))
     .ToArray();
 
         if (files.Length == 0)
@@ -37,6 +34,15 @@ public class DocumentFolderIndexingService
                 "No PDF documents found.");
 
             return;
+        }
+
+        System.Console.WriteLine(
+            $"Documents folder: {folderPath}");
+
+        foreach (string file in files)
+        {
+            System.Console.WriteLine(
+                $"Found file: {Path.GetFileName(file)}");
         }
 
         System.Console.WriteLine();

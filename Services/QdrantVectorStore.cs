@@ -80,6 +80,7 @@ public class QdrantVectorStore
 
         point.Payload["documentId"] =
             chunk.DocumentId;
+            
         await _client.UpsertAsync(
             collectionName: CollectionName,
             points: new[] { point });

@@ -10,10 +10,15 @@ var hashService = new DocumentHashService();
 // PDF
 // --------------------------------------------------
 
-string documentsPath = Path.Combine(
-    AppContext.BaseDirectory,
-    "Documents");
+    string documentsPath = Path.GetFullPath(
+    Path.Combine(
+        AppContext.BaseDirectory,
+        "..",
+        "..",
+        "..",
+        "Documents"));
 
+System.Console.WriteLine($"Documents path: {documentsPath}");
 // --------------------------------------------------
 // Configuration
 // --------------------------------------------------
@@ -87,7 +92,8 @@ var extractors =
     new List<IDocumentTextExtractor>
     {
         new PdfTextExtractor(),
-        new TxtTextExtractor()
+        new TxtTextExtractor(),
+        new DocxTextExtractor()
     };
 
 var chunkingService =
