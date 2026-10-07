@@ -31,59 +31,88 @@ public class QuestionRouterService
 
         System.Console.WriteLine($"Question route: {route.Route}");
 
-        return route.Route switch
-        {
-            "database" =>
-                await _databaseQuestionService.AskAsync(
-                    question,
-                    cancellationToken),
+       return route.Route switch
+{
+    "database" =>
+        await _databaseQuestionService.AskAsync(
+            route.DatabaseQuestion ?? question,
+            cancellationToken),
 
-            "document" =>
-                await _ragService.AskAsync(
-                    question),
+    "document" =>
+        await _ragService.AskAsync(
+            route.DocumentQuestion ?? question),
 
-            _ =>
-                "I could not determine where to find the answer."
-        };
+    "both" =>
+        await AskBothAsync(
+            question,
+            route,
+            cancellationToken),
+
+    _ =>
+        "I could not determine where to find the answer."
+};
     }
 
     private async Task<QuestionRoute> DetermineRouteAsync(
         string question,
         CancellationToken cancellationToken)
     {
-        string prompt =
-            """
-            Classify where the following question should be answered from.
+           string prompt =
+    """
+    Analyze the user's question and determine which
+    data source is required.
 
-            Available routes:
+    Available routes:
 
-            database
-            - Structured product information stored in SQL Server.
-            - Examples: product price, stock, active status,
-              product details, active product count,
-              out-of-stock products.
+    database
+    - Structured product information stored in SQL Server.
+    - Product price, stock, active status, product details,
+      active product count and out-of-stock products.
 
-            document
-            - Information contained in PDF, TXT or DOCX documents.
-            - Examples: reports, policies, specifications,
-              insurance information, medical reports,
-              document text or document-specific details.
+    document
+    - Information contained in PDF, TXT or DOCX documents.
+    - Reports, policies, specifications and other
+      document content.
 
-            unknown
-            - The question cannot clearly be answered from either source.
+    both
+    - The question requires information from BOTH
+      SQL Server and documents.
 
-            Return ONLY valid JSON.
+    unknown
+    - The question cannot be answered from the
+      available sources.
 
-            Required format:
-            {
-              "route": "database"
-            }
+    For a database question:
+    {
+      "route": "database",
+      "databaseQuestion": "the database-specific question",
+      "documentQuestion": null
+    }
 
-            Do not include markdown.
-            Do not explain your answer.
+    For a document question:
+    {
+      "route": "document",
+      "databaseQuestion": null,
+      "documentQuestion": "the document-specific question"
+    }
 
-            Question:
-            """ + question;
+    For a question requiring both:
+    {
+      "route": "both",
+      "databaseQuestion": "only the database part",
+      "documentQuestion": "only the document part"
+    }
+
+    Important:
+    - Preserve important identifiers such as part numbers.
+    - Do not invent identifiers.
+    - Do not answer the question.
+    - Only classify and split the question.
+    - Return ONLY valid JSON.
+    - Do not include markdown.
+
+    User question:
+    """ + question;
 
         ChatResponse response =  await _chatClient.GetResponseAsync(prompt,cancellationToken: cancellationToken);
 
@@ -109,8 +138,7 @@ public class QuestionRouterService
                     .Trim()
                     .ToLowerInvariant();
 
-            if (result.Route is not
-                ("database" or "document"))
+           if (result.Route is not ("database" or "document" or "both"))
             {
                 return Unknown();
             }
@@ -155,4 +183,65 @@ public class QuestionRouterService
             (firstNewLine + 1)..lastFence
         ].Trim();
     }
+   private async Task<string> AskBothAsync(
+    string originalQuestion,
+    QuestionRoute route,
+    CancellationToken cancellationToken)
+{
+    if (string.IsNullOrWhiteSpace(
+        route.DatabaseQuestion))
+    {
+        return "The database part of the question could not be determined.";
+    }
+
+    if (string.IsNullOrWhiteSpace(
+        route.DocumentQuestion))
+    {
+        return "The document part of the question could not be determined.";
+    }
+
+    System.Console.WriteLine(
+        $"Database question: {route.DatabaseQuestion}");
+
+    System.Console.WriteLine(
+        $"Document question: {route.DocumentQuestion}");
+
+    string databaseAnswer =
+        await _databaseQuestionService.AskAsync(
+            route.DatabaseQuestion,
+            cancellationToken);
+
+    string documentAnswer =
+        await _ragService.AskAsync(
+            route.DocumentQuestion);
+
+    string prompt =
+        $"""
+        Answer the user's original question using ONLY
+        the retrieved information below.
+
+        DATABASE INFORMATION:
+        {databaseAnswer}
+
+        DOCUMENT INFORMATION:
+        {documentAnswer}
+
+        ORIGINAL QUESTION:
+        {originalQuestion}
+
+        Requirements:
+        - Combine the information into one answer.
+        - Do not invent information.
+        - Preserve document source information.
+        - If information is missing, state that clearly.
+        - Keep the answer concise.
+        """;
+
+    ChatResponse response =
+        await _chatClient.GetResponseAsync(
+            prompt,
+            cancellationToken: cancellationToken);
+
+    return response.Text.Trim();
+}
 }
