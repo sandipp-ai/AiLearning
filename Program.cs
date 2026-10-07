@@ -1,16 +1,16 @@
-﻿using AiLearning.Console.Services;
+﻿using AiLearning.Console.Data;
+using AiLearning.Console.Services;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using OpenAI;
 using System.ClientModel;
 
-
-var hashService = new DocumentHashService();
 // --------------------------------------------------
-// PDF
+// Documents path
 // --------------------------------------------------
 
-    string documentsPath = Path.GetFullPath(
+string documentsPath = Path.GetFullPath(
     Path.Combine(
         AppContext.BaseDirectory,
         "..",
@@ -18,13 +18,20 @@ var hashService = new DocumentHashService();
         "..",
         "Documents"));
 
-System.Console.WriteLine($"Documents path: {documentsPath}");
+System.Console.WriteLine(
+    $"Documents path: {documentsPath}");
+
 // --------------------------------------------------
 // Configuration
 // --------------------------------------------------
 
 var configuration =
     new ConfigurationBuilder()
+        .SetBasePath(AppContext.BaseDirectory)
+        .AddJsonFile(
+            "appsettings.json",
+            optional: false,
+            reloadOnChange: false)
         .AddUserSecrets<Program>()
         .Build();
 
@@ -38,6 +45,32 @@ if (string.IsNullOrWhiteSpace(token))
 
     return;
 }
+
+// --------------------------------------------------
+// Database
+// --------------------------------------------------
+
+string connectionString =
+    configuration.GetConnectionString(
+        "AiLearningDatabase")
+    ?? throw new InvalidOperationException(
+        "Database connection string not found.");
+
+var dbOptions =
+    new DbContextOptionsBuilder<AiLearningDbContext>()
+        .UseSqlServer(connectionString)
+        .Options;
+
+await using var dbContext =
+    new AiLearningDbContext(dbOptions);
+
+var databaseInitializer =
+    new DatabaseInitializer(dbContext);
+
+await databaseInitializer.SeedAsync();
+
+var productRepository =
+    new ProductRepository(dbContext);
 
 // --------------------------------------------------
 // Embedding client
@@ -75,6 +108,17 @@ IChatClient chatClient =
         .AsIChatClient();
 
 // --------------------------------------------------
+// Database question service
+// IMPORTANT: productRepository and chatClient
+// must exist before creating this service.
+// --------------------------------------------------
+
+var databaseQuestionService =
+    new DatabaseQuestionService(
+        productRepository,
+        chatClient);
+
+// --------------------------------------------------
 // Qdrant
 // --------------------------------------------------
 
@@ -82,10 +126,9 @@ var vectorStore =
     new QdrantVectorStore();
 
 await vectorStore.CreateCollectionAsync();
-System.Console.WriteLine(
-    "DEBUG: Qdrant initialization completed.");
+
 // --------------------------------------------------
-// PDF services
+// Document extraction
 // --------------------------------------------------
 
 var extractors =
@@ -105,8 +148,11 @@ var ingestionService =
     new DocumentIngestionService(
         embeddingService);
 
+var hashService =
+    new DocumentHashService();
+
 // --------------------------------------------------
-// Indexing service
+// Document indexing
 // --------------------------------------------------
 
 var indexingService =
@@ -117,10 +163,12 @@ var indexingService =
         vectorStore,
         hashService);
 
-var folderIndexingService = new DocumentFolderIndexingService(indexingService);
+var folderIndexingService =
+    new DocumentFolderIndexingService(
+        indexingService);
 
 // --------------------------------------------------
-// RAG service
+// Document RAG
 // --------------------------------------------------
 
 var ragService =
@@ -129,17 +177,19 @@ var ragService =
         vectorStore,
         chatClient);
 
-System.Console.WriteLine(
-    "DEBUG: Starting main menu.");
-    
+// --------------------------------------------------
+// Main menu
+// --------------------------------------------------
+
 while (true)
 {
-    
     System.Console.WriteLine();
     System.Console.WriteLine("AI Learning");
-    System.Console.WriteLine("--------------------");
-    System.Console.WriteLine("1. Ingest PDFs");
-    System.Console.WriteLine("2. Ask question");
+    System.Console.WriteLine("-----------------------------");
+    System.Console.WriteLine("1. Ingest Documents");
+    System.Console.WriteLine("2. Ask Document Question");
+    System.Console.WriteLine("3. View Database Products");
+    System.Console.WriteLine("4. Ask Database Question");
     System.Console.WriteLine("0. Exit");
     System.Console.WriteLine();
 
@@ -151,16 +201,27 @@ while (true)
     if (choice == "0")
         break;
 
+    // --------------------------------------------------
+    // Ingest documents
+    // --------------------------------------------------
+
     if (choice == "1")
     {
-        await folderIndexingService.IndexFolderAsync(documentsPath);
+        await folderIndexingService
+            .IndexFolderAsync(
+                documentsPath);
+
         continue;
     }
+
+    // --------------------------------------------------
+    // Document question
+    // --------------------------------------------------
 
     if (choice == "2")
     {
         System.Console.Write(
-            "Question: ");
+            "Document question: ");
 
         string? question =
             System.Console.ReadLine();
@@ -168,25 +229,105 @@ while (true)
         if (string.IsNullOrWhiteSpace(question))
             continue;
 
+        try
+        {
+            System.Console.WriteLine();
+            System.Console.WriteLine(
+                "Generating answer...");
+
+            string answer =
+                await ragService.AskAsync(
+                    question);
+
+            System.Console.WriteLine();
+            System.Console.WriteLine(
+                "AI Answer:");
+
+            System.Console.WriteLine(
+                answer);
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine();
+            System.Console.WriteLine(
+                $"Document question failed: {ex.Message}");
+        }
+
+        continue;
+    }
+
+    // --------------------------------------------------
+    // View products
+    // --------------------------------------------------
+
+    if (choice == "3")
+    {
+        var products =
+            await productRepository
+                .GetAllAsync();
+
         System.Console.WriteLine();
         System.Console.WriteLine(
-            "Generating answer...");
+            "Products");
 
-        string answer =
-            await ragService.AskAsync(
-                question);
-
-        System.Console.WriteLine();
         System.Console.WriteLine(
-            "AI Answer:");
+            "------------------------------------------------");
 
-        System.Console.WriteLine();
-        System.Console.WriteLine(
-            answer);
+        foreach (var product in products)
+        {
+            System.Console.WriteLine(
+                $"{product.PartNumber} | " +
+                $"{product.Name} | " +
+                $"Price: {product.Price:C} | " +
+                $"Stock: {product.Stock} | " +
+                $"Active: {product.IsActive}");
+        }
+
+        continue;
+    }
+
+    // --------------------------------------------------
+    // Database question
+    // --------------------------------------------------
+
+    if (choice == "4")
+    {
+        System.Console.Write(
+            "Database question: ");
+
+        string? question =
+            System.Console.ReadLine();
+
+        if (string.IsNullOrWhiteSpace(question))
+            continue;
+
+        try
+        {
+            System.Console.WriteLine();
+            System.Console.WriteLine(
+                "Analyzing database question...");
+
+            string answer =
+                await databaseQuestionService
+                    .AskAsync(question);
+
+            System.Console.WriteLine();
+            System.Console.WriteLine(
+                "AI Answer:");
+
+            System.Console.WriteLine(
+                answer);
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine();
+            System.Console.WriteLine(
+                $"Database question failed: {ex.Message}");
+        }
 
         continue;
     }
 
     System.Console.WriteLine(
         "Invalid option.");
-}        
+}
