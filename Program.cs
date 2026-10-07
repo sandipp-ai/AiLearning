@@ -177,6 +177,12 @@ var ragService =
         vectorStore,
         chatClient);
 
+var questionRouterService =
+    new QuestionRouterService(
+        chatClient,
+        ragService,
+        databaseQuestionService);
+
 // --------------------------------------------------
 // Main menu
 // --------------------------------------------------
@@ -219,42 +225,42 @@ while (true)
     // --------------------------------------------------
 
     if (choice == "2")
-    {
-        System.Console.Write(
-            "Document question: ");
+{
+    System.Console.Write(
+        "Question: ");
 
-        string? question =
-            System.Console.ReadLine();
+    string? question =
+        System.Console.ReadLine();
 
-        if (string.IsNullOrWhiteSpace(question))
-            continue;
-
-        try
-        {
-            System.Console.WriteLine();
-            System.Console.WriteLine(
-                "Generating answer...");
-
-            string answer =
-                await ragService.AskAsync(
-                    question);
-
-            System.Console.WriteLine();
-            System.Console.WriteLine(
-                "AI Answer:");
-
-            System.Console.WriteLine(
-                answer);
-        }
-        catch (Exception ex)
-        {
-            System.Console.WriteLine();
-            System.Console.WriteLine(
-                $"Document question failed: {ex.Message}");
-        }
-
+    if (string.IsNullOrWhiteSpace(question))
         continue;
+
+    try
+    {
+        System.Console.WriteLine();
+        System.Console.WriteLine(
+            "Analyzing question...");
+
+        string answer =
+            await questionRouterService
+                .AskAsync(question);
+
+        System.Console.WriteLine();
+        System.Console.WriteLine(
+            "AI Answer:");
+
+        System.Console.WriteLine(
+            answer);
     }
+    catch (Exception ex)
+    {
+        System.Console.WriteLine();
+        System.Console.WriteLine(
+            $"Question failed: {ex.Message}");
+    }
+
+    continue;
+}
 
     // --------------------------------------------------
     // View products
@@ -285,49 +291,7 @@ while (true)
 
         continue;
     }
-
-    // --------------------------------------------------
-    // Database question
-    // --------------------------------------------------
-
-    if (choice == "4")
-    {
-        System.Console.Write(
-            "Database question: ");
-
-        string? question =
-            System.Console.ReadLine();
-
-        if (string.IsNullOrWhiteSpace(question))
-            continue;
-
-        try
-        {
-            System.Console.WriteLine();
-            System.Console.WriteLine(
-                "Analyzing database question...");
-
-            string answer =
-                await databaseQuestionService
-                    .AskAsync(question);
-
-            System.Console.WriteLine();
-            System.Console.WriteLine(
-                "AI Answer:");
-
-            System.Console.WriteLine(
-                answer);
-        }
-        catch (Exception ex)
-        {
-            System.Console.WriteLine();
-            System.Console.WriteLine(
-                $"Database question failed: {ex.Message}");
-        }
-
-        continue;
-    }
-
+  
     System.Console.WriteLine(
         "Invalid option.");
 }
