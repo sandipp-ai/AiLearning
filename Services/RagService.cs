@@ -23,14 +23,17 @@ public class RagService
     {
         // 1. Embed question
 
-        float[] questionEmbedding =
-            await _embeddingService.GenerateEmbeddingAsync(
-                question);
+        float[] questionEmbedding;
+
+        using (new PerformanceTimer("RAG - Local BGE Embedding"))
+        {
+            questionEmbedding =
+                await _embeddingService.GenerateEmbeddingAsync(question);
+        }
 
         // 2. Search Qdrant
 
-        var results =
-            await _vectorStore.SearchAsync(
+        var results =            await _vectorStore.SearchAsync(
                 questionEmbedding,
                 limit: 3);
 

@@ -1,187 +1,118 @@
-﻿using AiLearning.Console.Data;
+﻿using AiLearning.Console.Configuration;
+using AiLearning.Console.Data;
 using AiLearning.Console.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using OpenAI;
 using System.ClientModel;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 
-// --------------------------------------------------
-// Documents path
-// --------------------------------------------------
+HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
-string documentsPath = Path.GetFullPath(
-    Path.Combine(
-        AppContext.BaseDirectory,
-        "..",
-        "..",
-        "..",
-        "Documents"));
+builder.Configuration.AddUserSecrets<Program>();
+builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("AppSettings"));
 
-System.Console.WriteLine(
-    $"Documents path: {documentsPath}");
+builder.Services.AddDbContext<AiLearningDbContext>(
+    options =>
+    {
+        string connectionString =
+            builder.Configuration.GetConnectionString(
+                "AiLearningDatabase")
+            ?? throw new InvalidOperationException(
+                "Database connection string not found.");
 
-// --------------------------------------------------
-// Configuration
-// --------------------------------------------------
+        options.UseSqlServer(connectionString);
+    });
 
-var configuration =
-    new ConfigurationBuilder()
-        .SetBasePath(AppContext.BaseDirectory)
-        .AddJsonFile(
-            "appsettings.json",
-            optional: false,
-            reloadOnChange: false)
-        .AddUserSecrets<Program>()
-        .Build();
+builder.Services.AddScoped<ProductRepository>();
+builder.Services.AddScoped<DatabaseInitializer>();
 
-string? token =
-    configuration["HuggingFace:Token"];
+builder.Services.AddHttpClient();
 
-if (string.IsNullOrWhiteSpace(token))
-{
-    System.Console.WriteLine(
-        "Hugging Face token not found.");
+builder.Services.AddSingleton<IEmbeddingService, LocalBgeEmbeddingService>();
 
-    return;
-}
+    builder.Services.AddSingleton<IChatClient>(serviceProvider =>
+    {
+        IConfiguration configuration =
+            serviceProvider.GetRequiredService<IConfiguration>();
 
-// --------------------------------------------------
-// Database
-// --------------------------------------------------
+        string apiKey = configuration["Gemini:ApiKey"]
+            ?? throw new InvalidOperationException(
+                "Gemini API key not found.");
 
-string connectionString =
-    configuration.GetConnectionString(
-        "AiLearningDatabase")
-    ?? throw new InvalidOperationException(
-        "Database connection string not found.");
+        var options = new OpenAIClientOptions
+        {
+            Endpoint = new Uri(
+                "https://generativelanguage.googleapis.com/v1beta/openai")
+        };
 
-var dbOptions =
-    new DbContextOptionsBuilder<AiLearningDbContext>()
-        .UseSqlServer(connectionString)
-        .Options;
+        var client = new OpenAIClient(
+            new ApiKeyCredential(apiKey),
+            options);
 
-await using var dbContext =
-    new AiLearningDbContext(dbOptions);
+        return client
+    .GetChatClient("gemini-3.8-flash")
+    .AsIChatClient();
+    });
 
-var databaseInitializer =
-    new DatabaseInitializer(dbContext);
+    builder.Services.AddSingleton<IDocumentTextExtractor,PdfTextExtractor>();
+    builder.Services.AddSingleton<IDocumentTextExtractor,TxtTextExtractor>();
+    builder.Services.AddSingleton<IDocumentTextExtractor,DocxTextExtractor>();
+    builder.Services.AddSingleton(new TextChunkingService(chunkSize: 200,overlap: 40));
+    builder.Services.AddSingleton<DocumentHashService>();
+    builder.Services.AddSingleton<QdrantVectorStore>();
+    builder.Services.AddSingleton<DocumentIngestionService>();
+    builder.Services.AddSingleton<DocumentIndexingService>();
+    builder.Services.AddSingleton<DocumentFolderIndexingService>();
+    builder.Services.AddSingleton<RagService>();
+    builder.Services.AddScoped<DatabaseQuestionService>();
+    builder.Services.AddScoped<QuestionRouterService>();
+
+using IHost host = builder.Build();
+var localEmbedding = host.Services.GetRequiredService<IEmbeddingService>();
+
+float[] vector = await localEmbedding.GenerateEmbeddingAsync(
+    "What does the employee benefits document say about annual paid leave?");
+
+double magnitude = Math.Sqrt(vector.Sum(x => (double)x * x));
+
+System.Console.WriteLine($"Dimensions: {vector.Length}");
+System.Console.WriteLine($"Vector magnitude: {magnitude:F6}");
+
+using IServiceScope scope = host.Services.CreateScope();
+IServiceProvider services = scope.ServiceProvider;
+
+var databaseInitializer = services.GetRequiredService<DatabaseInitializer>();
 
 await databaseInitializer.SeedAsync();
 
-var productRepository =
-    new ProductRepository(dbContext);
-
-// --------------------------------------------------
-// Embedding client
-// --------------------------------------------------
-
-using var httpClient =
-    new HttpClient();
-
-IEmbeddingService embeddingService =
-    new HuggingFaceEmbeddingService(
-        httpClient,
-        token,
-        "BAAI/bge-small-en-v1.5");
-
-// --------------------------------------------------
-// GPT-OSS client
-// --------------------------------------------------
-
-var openAiOptions =
-    new OpenAIClientOptions
-    {
-        Endpoint = new Uri(
-            "https://router.huggingface.co/v1")
-    };
-
-var aiClient =
-    new OpenAIClient(
-        new ApiKeyCredential(token),
-        openAiOptions);
-
-IChatClient chatClient =
-    aiClient
-        .GetChatClient(
-            "openai/gpt-oss-120b")
-        .AsIChatClient();
-
-// --------------------------------------------------
-// Database question service
-// IMPORTANT: productRepository and chatClient
-// must exist before creating this service.
-// --------------------------------------------------
-
-var databaseQuestionService =
-    new DatabaseQuestionService(
-        productRepository,
-        chatClient);
-
-// --------------------------------------------------
-// Qdrant
-// --------------------------------------------------
-
-var vectorStore =
-    new QdrantVectorStore();
-
+var vectorStore = services.GetRequiredService<QdrantVectorStore>();
 await vectorStore.CreateCollectionAsync();
-
-// --------------------------------------------------
-// Document extraction
-// --------------------------------------------------
-
-var extractors =
-    new List<IDocumentTextExtractor>
-    {
-        new PdfTextExtractor(),
-        new TxtTextExtractor(),
-        new DocxTextExtractor()
-    };
-
-var chunkingService =
-    new TextChunkingService(
-        chunkSize: 200,
-        overlap: 40);
-
-var ingestionService =
-    new DocumentIngestionService(
-        embeddingService);
-
-var hashService =
-    new DocumentHashService();
-
-// --------------------------------------------------
-// Document indexing
-// --------------------------------------------------
-
-var indexingService =
-    new DocumentIndexingService(
-        extractors,
-        chunkingService,
-        ingestionService,
-        vectorStore,
-        hashService);
-
 var folderIndexingService =
-    new DocumentFolderIndexingService(
-        indexingService);
-
-// --------------------------------------------------
-// Document RAG
-// --------------------------------------------------
-
-var ragService =
-    new RagService(
-        embeddingService,
-        vectorStore,
-        chatClient);
+    services.GetRequiredService<DocumentFolderIndexingService>();
 
 var questionRouterService =
-    new QuestionRouterService(
-        chatClient,
-        ragService,
-        databaseQuestionService);
+    services.GetRequiredService<QuestionRouterService>();
+
+var productRepository =
+    services.GetRequiredService<ProductRepository>();
+
+var appSettings =
+    services.GetRequiredService<IOptions<AppSettings>>().Value;
+
+string documentsPath =
+    Path.GetFullPath(
+        Path.Combine(
+            AppContext.BaseDirectory,
+            appSettings.DocumentsPath));
+
+System.Console.WriteLine(
+    $"Documents path: {documentsPath}");
 
 // --------------------------------------------------
 // Main menu
@@ -193,16 +124,14 @@ while (true)
     System.Console.WriteLine("AI Learning");
     System.Console.WriteLine("-----------------------------");
     System.Console.WriteLine("1. Ingest Documents");
-    System.Console.WriteLine("2. Ask Document Question");
+    System.Console.WriteLine("2. Ask Question");
     System.Console.WriteLine("3. View Database Products");
-    System.Console.WriteLine("4. Ask Database Question");
     System.Console.WriteLine("0. Exit");
     System.Console.WriteLine();
 
     System.Console.Write("Select: ");
 
-    string? choice =
-        System.Console.ReadLine();
+    string? choice = System.Console.ReadLine();
 
     if (choice == "0")
         break;

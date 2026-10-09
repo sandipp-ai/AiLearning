@@ -7,7 +7,7 @@ namespace AiLearning.Console.Services;
 public class QdrantVectorStore
 {
     private const string CollectionName =
-        "document_chunks";
+        "document_chunks_local";
 
     private readonly QdrantClient _client;
 

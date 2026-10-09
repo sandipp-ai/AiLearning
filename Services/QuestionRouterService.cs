@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AiLearning.Console.Models;
 using Microsoft.Extensions.AI;
+using System.Diagnostics;
 
 namespace AiLearning.Console.Services;
 
@@ -114,7 +115,13 @@ public class QuestionRouterService
     User question:
     """ + question;
 
+        var stopwatch = Stopwatch.StartNew();
+
         ChatResponse response =  await _chatClient.GetResponseAsync(prompt,cancellationToken: cancellationToken);
+
+        stopwatch.Stop();
+
+        System.Console.WriteLine($"Question routing took: {stopwatch.ElapsedMilliseconds} ms");
 
         string json = RemoveMarkdownCodeFence(response.Text);
 

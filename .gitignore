@@ -486,3 +486,8 @@ $RECYCLE.BIN/
 # Local documents used for RAG testing
 Documents/*
 !Documents/.gitkeep
+
+# Local AI models
+*.onnx
+*.safetensors
+*.gguf
